@@ -881,4 +881,3 @@ void CGraphicContext::GetAllowedResolutions(vector<RESOLUTION> &res)
     res.push_back((RESOLUTION) r);
   }
 }
-

@@ -166,7 +166,7 @@ JSONRPC_STATUS CAudioLibrary::GetAlbums(const CStdString &method, ITransportLaye
       size = (int)items.GetProperty("total").asInteger();
       HandleFileItemList("spotify_albumid", false, "albums", items, parameterObject, result,size,false);
   }
-  if (!musicdatabase.GetAlbumsNav("musicdb://3/", items, genreID, artistID, -1, -1, sorting) && artistID != -1)
+   if (!musicdatabase.GetAlbumsNav(musicUrl.ToString(), items, genreID, artistID, CDatabase::Filter(), sorting))
     return InternalError;
 
   size = items.Size();
