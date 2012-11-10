@@ -1424,12 +1424,27 @@ void CVideoDatabase::AddTagToItem(int idMovie, int idTag, const std::string &typ
   AddToLinkTable("taglinks", "idTag", idTag, "idMedia", idMovie, "media_type", type.c_str());
 }
 
-void CVideoDatabase::RemoveTagFromItem(int idMovie, int idTag, const std::string &type)
+void CVideoDatabase::RemoveTagFromItem(int idItem, int idTag, const std::string &type)
 {
   if (type.empty())
     return;
 
-  RemoveFromLinkTable("taglinks", "idTag", idTag, "idMedia", idMovie, "media_type", type.c_str());
+  RemoveFromLinkTable("taglinks", "idTag", idTag, "idMedia", idItem, "media_type", type.c_str());
+  CleanupTags();
+}
+
+void CVideoDatabase::RemoveTagsFromItem(int idItem, const std::string &type)
+{
+  if (type.empty())
+    return;
+
+  m_pDS2->exec(PrepareSQL("DELETE FROM taglinks WHERE idMedia=%d AND media_type='%s'", idItem, type.c_str()));
+  CleanupTags();
+}
+
+void CVideoDatabase::CleanupTags()
+{
+  m_pDS2->exec("DELETE FROM tag WHERE NOT EXISTS (SELECT 1 FROM taglinks WHERE taglinks.idTag = tag.idTag)");
 }
 
 //****Actors****
@@ -2979,14 +2994,7 @@ void CVideoDatabase::DeleteTag(int idTag, VIDEODB_CONTENT_TYPE mediaType)
     CStdString strSQL;
     strSQL = PrepareSQL("DELETE FROM taglinks WHERE idTag = %i AND media_type = '%s'", idTag, type.c_str());
     m_pDS->exec(strSQL.c_str());
-
-    // check if the tag is used for another media type as well before deleting it completely
-    strSQL = PrepareSQL("SELECT 1 FROM taglinks WHERE idTag = %i", idTag);
-    if (RunQuery(strSQL) <= 0)
-    {
-      strSQL = PrepareSQL("DELETE FROM tag WHERE idTag = %i", idTag);
-      m_pDS->exec(strSQL.c_str());
-    }
+    CleanupTags();
   }
   catch (...)
   {
@@ -6362,7 +6370,7 @@ bool CVideoDatabase::GetRecentlyAddedMoviesNav(const CStdString& strBaseDir, CFi
 {
   Filter filter;
   filter.order = "dateAdded desc, idMovie desc";
-  filter.limit = PrepareSQL("%u", limit ? limit : 25);
+  filter.limit = PrepareSQL("%u", limit ? limit : g_advancedSettings.m_iVideoLibraryRecentlyAddedItems);
   return GetMoviesByWhere(strBaseDir, filter, items);
 }
 
@@ -6370,7 +6378,7 @@ bool CVideoDatabase::GetRecentlyAddedEpisodesNav(const CStdString& strBaseDir, C
 {
   Filter filter;
   filter.order = "dateAdded desc, idEpisode desc";
-  filter.limit = PrepareSQL("%u", limit ? limit : 25);
+  filter.limit = PrepareSQL("%u", limit ? limit : g_advancedSettings.m_iVideoLibraryRecentlyAddedItems);
   return GetEpisodesByWhere(strBaseDir, filter, items, false);
 }
 
@@ -6378,7 +6386,7 @@ bool CVideoDatabase::GetRecentlyAddedMusicVideosNav(const CStdString& strBaseDir
 {
   Filter filter;
   filter.order = "dateAdded desc, idMVideo desc";
-  filter.limit = PrepareSQL("%u", limit ? limit : 25);
+  filter.limit = PrepareSQL("%u", limit ? limit : g_advancedSettings.m_iVideoLibraryRecentlyAddedItems);
   return GetMusicVideosByWhere(strBaseDir, filter, items);
 }
 
@@ -6611,7 +6619,7 @@ ScraperPtr CVideoDatabase::GetScraperForPath(const CStdString& strPath, SScanSet
       {
         iFound++;
 
-        CStdString strSQL=PrepareSQL("select path.strContent,path.strScraper,path.scanRecursive,path.useFolderNames,path.strSettings,path.noUpdate from path where strPath='%s'",strParent.c_str());
+        CStdString strSQL=PrepareSQL("select path.strContent,path.strScraper,path.scanRecursive,path.useFolderNames,path.strSettings,path.noUpdate, path.exclude from path where strPath='%s'",strParent.c_str());
         m_pDS->query(strSQL.c_str());
 
         CONTENT_TYPE content = CONTENT_NONE;
@@ -6620,7 +6628,7 @@ ScraperPtr CVideoDatabase::GetScraperForPath(const CStdString& strPath, SScanSet
 
           CStdString strcontent = m_pDS->fv("path.strContent").get_asString();
           strcontent.ToLower();
-          if (strcontent.Equals("none"))
+          if (m_pDS->fv("path.exclude").get_asBool())
           {
             settings.exclude = true;
             scraper.reset();
@@ -7687,6 +7695,7 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle, const se
 
     unsigned int time = XbmcThreads::SystemClockMillis();
     CLog::Log(LOGNOTICE, "%s: Starting videodatabase cleanup ..", __FUNCTION__);
+    ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnCleanStarted");
 
     BeginTransaction();
 
@@ -7697,6 +7706,7 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle, const se
       if (paths->size() == 0)
       {
         RollbackTransaction();
+        ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnCleanFinished");
         return;
       }
 
@@ -7781,6 +7791,7 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle, const se
           {
             progress->Close();
             m_pDS->close();
+            ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnCleanFinished");
             return;
           }
         }
@@ -8075,6 +8086,8 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle, const se
   }
   if (progress)
     progress->Close();
+
+  ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnCleanFinished");
 }
 
 void CVideoDatabase::DumpToDummyFiles(const CStdString &path)
