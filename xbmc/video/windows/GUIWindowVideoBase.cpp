@@ -1623,7 +1623,8 @@ void CGUIWindowVideoBase::OnDeleteItem(CFileItemPtr item)
       return;
   }
 
-  if (g_guiSettings.GetBool("filelists.allowfiledeletion") &&
+  if ((g_guiSettings.GetBool("filelists.allowfiledeletion") ||
+       m_vecItems->GetPath().Equals("special://videoplaylists/")) &&
       CUtil::SupportsWriteFileOperations(item->GetPath()))
     CFileUtils::DeleteItem(item);
 }
@@ -1866,8 +1867,9 @@ void CGUIWindowVideoBase::GetGroupedItems(CFileItemList &items)
   CQueryParams params;
   CVideoDatabaseDirectory dir;
   dir.GetQueryParams(items.GetPath(), params);
+  VIDEODATABASEDIRECTORY::NODE_TYPE nodeType = CVideoDatabaseDirectory::GetDirectoryChildType(m_strFilterPath);
   if (items.GetContent().Equals("movies") && params.GetSetId() <= 0 &&
-      CVideoDatabaseDirectory::GetDirectoryChildType(items.GetPath()) != NODE_TYPE_RECENTLY_ADDED_MOVIES &&
+      nodeType == NODE_TYPE_TITLE_MOVIES &&
       g_guiSettings.GetBool("videolibrary.groupmoviesets"))
   {
     CFileItemList groupedItems;
