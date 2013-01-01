@@ -18,9 +18,11 @@
  *
  */
 
+
+
 //spotify
 #include "music/spotyXBMC/Addon.music.spotify.h"
-
+#include "network/Network.h"
 #include "threads/SystemClock.h"
 #include "system.h"
 #include "Application.h"
@@ -142,7 +144,6 @@
 #include "music/karaoke/GUIDialogKaraokeSongSelector.h"
 #include "music/karaoke/GUIWindowKaraokeLyrics.h"
 #endif
-#include "network/Network.h"
 #include "network/Zeroconf.h"
 #include "network/ZeroconfBrowser.h"
 #ifndef _LINUX
@@ -389,6 +390,7 @@ CApplication::CApplication(void)
   , m_musicInfoScanner(new CMusicInfoScanner)
   , m_seekHandler(new CSeekHandler)
 {
+  m_network = NULL;
   TiXmlBase::SetCondenseWhiteSpace(false);
   m_iPlaySpeed = 1;
   m_bInhibitIdleShutdown = false;
@@ -469,6 +471,7 @@ CApplication::~CApplication(void)
   delete m_dpms;
   delete m_seekHandler;
   delete m_pInertialScrollingHandler;
+
 }
 
 bool CApplication::OnEvent(XBMC_Event& newEvent)
@@ -568,6 +571,14 @@ void CApplication::Preflight()
 
 bool CApplication::Create()
 {
+#if defined(HAS_LINUX_NETWORK)
+  m_network = new CNetworkLinux();
+#elif defined(HAS_WIN32_NETWORK)
+  m_network = new CNetworkWin32();
+#else
+  m_network = new CNetwork();
+#endif
+
   Preflight();
   g_settings.Initialize(); //Initialize default AdvancedSettings
 
@@ -640,7 +651,7 @@ bool CApplication::Create()
 
   CStdString executable = CUtil::ResolveExecutablePath();
   CLog::Log(LOGNOTICE, "The executable running is: %s", executable.c_str());
-  CLog::Log(LOGNOTICE, "Local hostname: %s", m_network.GetHostName().c_str());
+  CLog::Log(LOGNOTICE, "Local hostname: %s", m_network->GetHostName().c_str());
   CLog::Log(LOGNOTICE, "Log File is located: %sxbmc.log", g_settings.m_logFolder.c_str());
   CLog::Log(LOGNOTICE, "-----------------------------------------------------------------------");
 
@@ -1356,8 +1367,16 @@ bool CApplication::Initialize()
       CJSONRPC::Initialize();
 #endif
       ADDON::CAddonMgr::Get().StartServices(false);
-      StartPVRManager();
-      g_windowManager.ActivateWindow(g_SkinInfo->GetFirstWindow());
+      if (g_SkinInfo->GetFirstWindow() == WINDOW_PVR)
+      {
+        g_windowManager.ActivateWindow(WINDOW_HOME);
+        StartPVRManager(true);
+      }
+      else
+      {
+        StartPVRManager(false);
+        g_windowManager.ActivateWindow(g_SkinInfo->GetFirstWindow());
+      }
     }
 
   }
@@ -1402,7 +1421,7 @@ bool CApplication::Initialize()
 
 #ifdef HAS_SDL_JOYSTICK
   g_Joystick.SetEnabled(g_guiSettings.GetBool("input.enablejoystick") &&
-                    (CPeripheralImon::GetCountOfImonsConflictWithDInput() == 0 || !g_guiSettings.GetBool("input.disablejoystickwithimon")) );
+                    CPeripheralImon::GetCountOfImonsConflictWithDInput() == 0 );
 #endif
 
   return true;
@@ -1505,7 +1524,7 @@ bool CApplication::StartServer(enum ESERVERS eServer, bool bStart, bool bWait/* 
 bool CApplication::StartWebServer()
 {
 #ifdef HAS_WEB_SERVER
-  if (g_guiSettings.GetBool("services.webserver") && m_network.IsAvailable())
+  if (g_guiSettings.GetBool("services.webserver") && m_network->IsAvailable())
   {
     int webPort = atoi(g_guiSettings.GetString("services.webserverport"));
     CLog::Log(LOGNOTICE, "Webserver: Starting...");
@@ -1561,7 +1580,7 @@ bool CApplication::StartAirplayServer()
 {
   bool ret = false;
 #ifdef HAS_AIRPLAY
-  if (g_guiSettings.GetBool("services.airplay") && m_network.IsAvailable())
+  if (g_guiSettings.GetBool("services.airplay") && m_network->IsAvailable())
   {
     int listenPort = g_advancedSettings.m_airPlayPort;
     CStdString password = g_guiSettings.GetString("services.airplaypassword");
@@ -1591,7 +1610,7 @@ bool CApplication::StartAirplayServer()
 #endif
   {
 #ifdef HAS_AIRTUNES
-    if (g_guiSettings.GetBool("services.airplay") && m_network.IsAvailable())
+    if (g_guiSettings.GetBool("services.airplay") && m_network->IsAvailable())
     {
       int listenPort = g_advancedSettings.m_airTunesPort;
       CStdString password = g_guiSettings.GetString("services.airplaypassword");
@@ -1799,10 +1818,10 @@ void CApplication::StopZeroconf()
 #endif
 }
 
-void CApplication::StartPVRManager()
+void CApplication::StartPVRManager(bool bOpenPVRWindow /* = false */)
 {
   if (g_guiSettings.GetBool("pvrmanager.enabled"))
-    g_PVRManager.Start(true);
+    g_PVRManager.Start(true, bOpenPVRWindow);
 }
 
 void CApplication::StopPVRManager()
@@ -1854,7 +1873,7 @@ void CApplication::StartServices()
 
 void CApplication::StopServices()
 {
-  m_network.NetworkMessage(CNetwork::SERVICES_DOWN, 0);
+  m_network->NetworkMessage(CNetwork::SERVICES_DOWN, 0);
 
 #if !defined(_WIN32) && defined(HAS_DVD_DRIVE)
   CLog::Log(LOGNOTICE, "stop dvd detect media");
@@ -2073,6 +2092,10 @@ void CApplication::UnloadSkin(bool forReload /* = false */)
   g_charsetConverter.reset();
 
   g_infoManager.Clear();
+
+//  The g_SkinInfo boost shared_ptr ought to be reset here
+// but there are too many places it's used without checking for NULL
+// and as a result a race condition on exit can cause a crash.
 }
 
 bool CApplication::LoadUserWindows()
@@ -3458,7 +3481,11 @@ bool CApplication::Cleanup()
 
 #ifdef _LINUX
     CXHandle::DumpObjectTracker();
+
+#ifdef HAS_DVD_DRIVE
+    CLibcdio::ReleaseInstance();
 #endif
+#endif 
 #if defined(TARGET_ANDROID)
     // enable for all platforms once it's safe
     g_sectionLoader.UnloadAll();
@@ -3467,6 +3494,10 @@ bool CApplication::Cleanup()
     _CrtDumpMemoryLeaks();
     while(1); // execution ends
 #endif
+
+    delete m_network;
+    m_network = NULL;
+
     return true;
   }
   catch (...)
@@ -3529,6 +3560,7 @@ void CApplication::Stop(int exitCode)
   CWebServer::UnregisterRequestHandler(&m_httpVfsHandler);
 #ifdef HAS_JSONRPC
   CWebServer::UnregisterRequestHandler(&m_httpJsonRpcHandler);
+  CJSONRPC::Cleanup();
 #endif
 #ifdef HAS_WEB_INTERFACE
   CWebServer::UnregisterRequestHandler(&m_httpWebinterfaceAddonsHandler);
@@ -3607,6 +3639,7 @@ void CApplication::Stop(int exitCode)
 
     // shutdown the AudioEngine
     CAEFactory::Shutdown();
+    CAEFactory::UnLoadEngine();
 
     CLog::Log(LOGNOTICE, "stopped");
   }
@@ -3849,7 +3882,9 @@ bool CApplication::PlayFile(const CFileItem& item, bool bRestart)
     g_settings.m_currentVideoSettings = g_settings.m_defaultVideoSettings;
     // see if we have saved options in the database
 
-    m_iPlaySpeed = 1;
+    SetPlaySpeed(1);
+    m_iPlaySpeed = 1;     // Reset both CApp's & Player's speed else we'll get confused
+
     *m_itemCurrentFile = item;
     m_nextPlaylistItem = -1;
     m_currentStackPosition = 0;
@@ -4787,11 +4822,18 @@ bool CApplication::OnMessage(CGUIMessage& message)
 #endif
       // reset the seek handler
       m_seekHandler->Reset();
+      CPlayList playList = g_playlistPlayer.GetPlaylist(g_playlistPlayer.GetCurrentPlaylist());
 
       // Update our infoManager with the new details etc.
       if (m_nextPlaylistItem >= 0)
-      { // we've started a previously queued item
-        CFileItemPtr item = g_playlistPlayer.GetPlaylist(g_playlistPlayer.GetCurrentPlaylist())[m_nextPlaylistItem];
+      { 
+        // playing an item which is not in the list - player might be stopped already
+        // so do nothing
+        if (playList.size() <= m_nextPlaylistItem)
+          return true;
+
+        // we've started a previously queued item
+        CFileItemPtr item = playList[m_nextPlaylistItem];
         // update the playlist manager
         int currentSong = g_playlistPlayer.GetCurrentSong();
         int param = ((currentSong & 0xffff) << 16) | (m_nextPlaylistItem & 0xffff);
@@ -5353,7 +5395,7 @@ void CApplication::SetHardwareVolume(float hardwareVolume)
   CAEFactory::SetVolume(value);
 
   /* for platforms where we do not have AE */
-  if (m_pPlayer)
+  if (!CAEFactory::GetEngine() && m_pPlayer)
     m_pPlayer->SetVolume(g_settings.m_fVolumeLevel);
 }
 
@@ -5838,23 +5880,10 @@ void CApplication::SetRenderGUI(bool renderGUI)
   m_renderGUI = renderGUI;
 }
 
-#if defined(HAS_LINUX_NETWORK)
-CNetworkLinux& CApplication::getNetwork()
-{
-  return m_network;
-}
-#elif defined(HAS_WIN32_NETWORK)
-CNetworkWin32& CApplication::getNetwork()
-{
-  return m_network;
-}
-#else
 CNetwork& CApplication::getNetwork()
 {
-  return m_network;
+  return *m_network;
 }
-
-#endif
 #ifdef HAS_PERFORMANCE_SAMPLE
 CPerformanceStats &CApplication::GetPerformanceStats()
 {
