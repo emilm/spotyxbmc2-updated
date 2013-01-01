@@ -413,18 +413,7 @@ MediaLibrary.prototype = {
   },
   displayAlbumDetails: function(event) {
     this.showAlbumSelectorBlock(event.data.album);
-    var s_albumid = 0;
-    var p_album_id = "";
-     if(event.data.album.albumid != undefined) {
-         s_albumid = event.data.album.albumid;
-         p_album_id = ', "albumid" : ' + event.data.album.albumid;
-      }
-      else if(event.data.album.spotify_albumid != undefined) {
-        s_albumid = event.data.album.spotify_albumid;
-        s_albumid = s_albumid.substr(26,22);
-        p_album_id = ', "albumid" : 1, "spotify_albumid" : "' + event.data.album.spotify_albumid+'"';
-      }
-    var albumDetailsContainer = $('#albumDetails' + s_albumid);
+    var albumDetailsContainer = $('#albumDetails' + event.data.album.albumid);
     $('#topScrollFade').hide();
     if (!albumDetailsContainer || albumDetailsContainer.length == 0) {
       $('#spinner').show();
@@ -465,7 +454,7 @@ MediaLibrary.prototype = {
               for (var a = 0; a < 5; a++) {
                 trackRow.append($('<td>').html('&nbsp').attr('style', 'display: none'));
               }
-              $('#albumDetails' + s_albumid + ' .resultSet').append(trackRow);
+              $('#albumDetails' + event.data.album.albumid + ' .resultSet').append(trackRow);
             }
             var trackRow = $('<tr>').addClass('trackRow').addClass('tr' + i % 2).bind('click', { album: event.data.album, itmnbr: i }, jQuery.proxy(this.playTrack,this));
             var trackNumberTD = $('<td>')
@@ -489,32 +478,31 @@ MediaLibrary.prototype = {
               .html(item.genre.join(', '));
 
             trackRow.append(trackGenreTD);
-            $('#albumDetails' + s_albumid + ' .resultSet').append(trackRow);
+            $('#albumDetails' + event.data.album.albumid + ' .resultSet').append(trackRow);
           }, this));
           if (trackCount > 0) {
             var trackRow = $('<tr>').addClass('fillerTrackRow');
             for (var i = 0; i < 5; i++) {
               trackRow.append($('<td>').html('&nbsp'));
             }
-            $('#albumDetails' + s_albumid + ' .resultSet').append(trackRow);
+            $('#albumDetails' + event.data.album.albumid + ' .resultSet').append(trackRow);
 
             var trackRow2 = $('<tr>').addClass('fillerTrackRow2');
             trackRow2.append($('<td>').addClass('albumBG').html('&nbsp'));
             for (var i = 0; i < 5; i++) {
               trackRow2.append($('<td>').html('&nbsp'));
             }
-            $('#albumDetails' + s_albumid + ' .resultSet').append(trackRow2);
+            $('#albumDetails' + event.data.album.albumid + ' .resultSet').append(trackRow2);
           }
-          $('#albumDetails' + s_albumid + ' .albumThumb')
+          $('#albumDetails' + event.data.album.albumid + ' .albumThumb')
             .append(this.generateThumb('album', albumThumbnail, albumTitle, albumArtist))
             .append($('<div>').addClass('footerPadding'));
           $('#spinner').hide();
-          myScroll = new iScroll('albumDetails' + s_albumid);
         }
       });
     } else {
       $('.contentContainer').hide();
-      $('#albumDetails' + s_albumid).show();
+      $('#albumDetails' + event.data.album.albumid).show();
     }
   },
   togglePosterView: function(event){

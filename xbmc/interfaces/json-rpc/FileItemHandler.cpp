@@ -20,7 +20,6 @@
 
 #include <map>
 #include <string.h>
-#include "music/spotyXBMC/Logger.h"
 #include "FileItemHandler.h"
 #include "PlaylistOperations.h"
 #include "AudioLibrary.h"
@@ -278,11 +277,6 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
 
     if (ID)
     {
-      if(stricmp(ID, "spotify_albumid") == 0 || stricmp(ID, "spotify_songid") == 0)
-      {
-	CStdString spotifyid = item->GetPath();
-	object[ID] = spotifyid.c_str();
-      }
       if (item->HasPVRChannelInfoTag() && item->GetPVRChannelInfoTag()->ChannelID() > 0)
          object[ID] = item->GetPVRChannelInfoTag()->ChannelID();
       else if (item->HasMusicInfoTag() && item->GetMusicInfoTag()->GetDatabaseId() > 0)

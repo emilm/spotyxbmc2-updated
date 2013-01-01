@@ -18,7 +18,6 @@
  *
  */
 
-#include "music/spotyXBMC/Addon.music.spotify.h"
 #include "AudioLibrary.h"
 #include "music/MusicDatabase.h"
 #include "FileItem.h"
@@ -153,26 +152,16 @@ JSONRPC_STATUS CAudioLibrary::GetAlbums(const CStdString &method, ITransportLaye
   ParseLimits(parameterObject, sorting.limitStart, sorting.limitEnd);
   if (!ParseSorting(parameterObject, sorting.sortBy, sorting.sortOrder, sorting.sortAttributes))
     return InvalidParams;
-  
-  CStdString s_path = "";
-  CStdString s_artistStr = "";
 
   CFileItemList items;
-   int size;
-  if(!(artistID > 0) && g_spotify->GetAlbums(items, s_path,s_artistStr))
-  {  
-      size = items.Size();
-      if (items.HasProperty("total") && items.GetProperty("total").asInteger() > size)
-      size = (int)items.GetProperty("total").asInteger();
-      HandleFileItemList("spotify_albumid", false, "albums", items, parameterObject, result,size,false);
-  }
-   if (!musicdatabase.GetAlbumsNav(musicUrl.ToString(), items, genreID, artistID, CDatabase::Filter(), sorting))
+  if (!musicdatabase.GetAlbumsNav(musicUrl.ToString(), items, genreID, artistID, CDatabase::Filter(), sorting))
     return InternalError;
 
   JSONRPC_STATUS ret = GetAdditionalAlbumDetails(parameterObject, items, musicdatabase);
   if (ret != OK)
     return ret;
 
+  int size = items.Size();
   if (items.HasProperty("total") && items.GetProperty("total").asInteger() > size)
     size = (int)items.GetProperty("total").asInteger();
   HandleFileItemList("albumid", false, "albums", items, parameterObject, result, size, false);
@@ -240,9 +229,6 @@ JSONRPC_STATUS CAudioLibrary::GetSongs(const CStdString &method, ITransportLayer
 
     musicUrl.AddOption("xsp", xsp);
   }
-  
-  CStdString spotifyID = (CStdString) parameterObject["spotify_albumid"].asString();
-  CStdString artistName = "";
 
   SortDescription sorting;
   ParseLimits(parameterObject, sorting.limitStart, sorting.limitEnd);
@@ -250,25 +236,18 @@ JSONRPC_STATUS CAudioLibrary::GetSongs(const CStdString &method, ITransportLayer
     return InvalidParams;
 
   CFileItemList items;
-  if (spotifyID.IsEmpty() && !musicdatabase.GetSongsNav("musicdb://4/", items, genreID, artistID, albumID, sorting))
+  if (!musicdatabase.GetSongsNav(musicUrl.ToString(), items, genreID, artistID, albumID, sorting))
     return InternalError;
-   
+
   JSONRPC_STATUS ret = GetAdditionalSongDetails(parameterObject, items, musicdatabase);
   if (ret != OK)
     return ret;
 
-    int size = items.Size();
-    if (items.HasProperty("total") && items.GetProperty("total").asInteger() > size)
+  int size = items.Size();
+  if (items.HasProperty("total") && items.GetProperty("total").asInteger() > size)
     size = (int)items.GetProperty("total").asInteger();
-    HandleFileItemList("songid", true, "songs", items, parameterObject, result, size, false);
+  HandleFileItemList("songid", true, "songs", items, parameterObject, result, size, false);
 
-   if(g_spotify->GetTracks(items,spotifyID,artistName,0))
-   {
-    if (items.HasProperty("total") && items.GetProperty("total").asInteger() > size)
-    size = (int)items.GetProperty("total").asInteger();
-   	HandleFileItemList("spotify_songid", true, "songs", items, parameterObject, result,size,false);
-   }
-  
   return OK;
 }
 
@@ -630,12 +609,7 @@ bool CAudioLibrary::FillFileItemList(const CVariant &parameterObject, CFileItemL
   int artistID = (int)parameterObject["artistid"].asInteger(-1);
   int albumID = (int)parameterObject["albumid"].asInteger(-1);
   int genreID = (int)parameterObject["genreid"].asInteger(-1);
-  CStdString spotifyID = "";
-  CStdString spotifySongID = "";
-  
-  spotifyID = (CStdString) parameterObject["spotify_albumid"].asString();
-  spotifySongID = (CStdString) parameterObject["spotify_songid"].asString();
-  CStdString artistName = "";
+
   bool success = false;
   CFileItemPtr fileItem(new CFileItem());
   if (FillFileItem(file, fileItem, parameterObject))
@@ -643,20 +617,11 @@ bool CAudioLibrary::FillFileItemList(const CVariant &parameterObject, CFileItemL
     success = true;
     list.Add(fileItem);
   }
-  if(spotifyID != "")
-  {
-     success |= g_spotify->GetTracks(list,spotifyID,artistName,0);
-  }
-  else
-  {
-    if (artistID != -1 || albumID != -1 || genreID != -1)
+
+  if (artistID != -1 || albumID != -1 || genreID != -1)
     success |= musicdatabase.GetSongsNav("musicdb://4/", list, genreID, artistID, albumID);
-  }
+
   int songID = (int)parameterObject["songid"].asInteger(-1);
-  if(spotifySongID != "")
-  {
-     success |= g_spotify->GetOneTrack(list,spotifySongID);
-  }  
   if (songID != -1)
   {
     CSong song;
